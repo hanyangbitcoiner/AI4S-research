@@ -1,0 +1,1 @@
+// Placeholder - shared types and utilities

@@ -1,0 +1,3 @@
+export const DEFAULT_HIDDEN_DIM = 4096;
+export const DEFAULT_CACHE_SIZE = 1000;
+export const DEFAULT_LATENCY_BUDGET_MS = 5;

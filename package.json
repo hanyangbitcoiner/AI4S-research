@@ -1,0 +1,31 @@
+{
+  "name": "emotion-monitor",
+  "version": "0.1.0",
+  "description": "Real-time emotion monitoring system",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:web\"",
+    "dev:backend": "tsx watch src/backend/index.ts",
+    "dev:web": "vite web",
+    "build": "tsc -p tsconfig.json && vite build web",
+    "start": "node dist/backend/index.js"
+  },
+  "dependencies": {
+    "fastify": "^5.3.0",
+    "better-sqlite3": "^11.9.0",
+    "zod": "^3.24.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "vite": "^6.2.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "tsx": "^4.19.0",
+    "concurrently": "^9.0.0"
+  }
+}
