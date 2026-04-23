@@ -1,15 +1,46 @@
-/**
- * Emotion Monitor Dashboard
- *
- * 前端监控面板：
- * - Learning 阶段：显示学习进度、样本收集
- * - Monitoring 阶段：实时情感向量监控、异常告警
- */
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
+import { 
+  Layout, 
+  Menu, 
+  Button, 
+  Card, 
+  Progress, 
+  Input, 
+  Badge, 
+  Space, 
+  Typography, 
+  ConfigProvider, 
+  theme,
+  Row,
+  Col,
+  List,
+  Avatar,
+  Select,
+  Form,
+  Divider,
+  Tag
+} from 'antd';
+import { 
+  DashboardOutlined, 
+  SettingOutlined, 
+  SecurityScanOutlined, 
+  GlobalOutlined,
+  ThunderboltOutlined,
+  InfoCircleOutlined,
+  UserOutlined,
+  ArrowRightOutlined,
+  DatabaseOutlined,
+  LinkOutlined,
+  CheckCircleOutlined,
+  DesktopOutlined
+} from '@ant-design/icons';
 
-// Types
+const { Header, Content, Sider } = Layout;
+const { Title, Text } = Typography;
+const { Option } = Select;
+
+// --- Types ---
 interface EmotionVectors {
   desperate: number;
   panicked: number;
@@ -22,11 +53,6 @@ interface EmotionDistribution {
   dimension: string;
   mean: number;
   std: number;
-  min: number;
-  max: number;
-  p5: number;
-  p95: number;
-  count: number;
 }
 
 interface Baseline {
@@ -40,7 +66,6 @@ interface LearningProgress {
   current: number;
   required: number;
   percentage: number;
-  phase: 'learning' | 'monitoring';
 }
 
 interface RiskAssessment {
@@ -64,7 +89,14 @@ interface SystemStatus {
   baseline: Baseline | null;
 }
 
-// API client
+interface LogEntry {
+  id: string;
+  time: string;
+  event: string;
+  type: 'info' | 'warning' | 'error' | 'success';
+}
+
+// --- API Client ---
 const API_BASE = '/api';
 
 async function fetchStatus(): Promise<SystemStatus> {
@@ -107,261 +139,358 @@ async function sendReset(): Promise<void> {
   });
 }
 
-// Emotion Vector Bar Component
-function EmotionBar({
-  label,
-  value,
-  baseline,
-  zScore
-}: {
-  label: string;
-  value: number;
-  baseline?: number;
-  zScore?: number;
-}) {
-  const percentage = Math.round(value * 100);
-  const isAnomaly = zScore !== undefined && Math.abs(zScore) > 2;
+// --- Components ---
 
+function StatusBadge({ phase }: { phase: 'learning' | 'monitoring' }) {
+  const phaseMap = {
+    learning: '学习模式',
+    monitoring: '监控模式'
+  };
   return (
-    <div style={{ marginBottom: '12px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-        <span style={{ fontWeight: 500, color: '#e5e7eb' }}>{label}</span>
-        <span style={{ color: isAnomaly ? '#ef4444' : '#9ca3af' }}>
-          {percentage}% {zScore !== undefined && `(${zScore > 0 ? '+' : ''}${zScore.toFixed(2)})`}
-        </span>
-      </div>
-      <div style={{ background: '#374151', borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
-        <div
-          style={{
-            width: `${percentage}%`,
-            height: '100%',
-            background: isAnomaly
-              ? '#ef4444'
-              : label === 'Calm'
-              ? '#10b981'
-              : '#3b82f6',
-            transition: 'width 0.3s ease',
-          }}
-        />
-      </div>
+    <div className="glass-panel" style={{ padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '8px', border: 'none' }}>
+      <div className="status-pulse" />
+      <span className="label-tech" style={{ color: '#fff', fontSize: '12px' }}>
+        系统运行状态: <span style={{ color: '#00f2ff' }}>{phaseMap[phase]}</span>
+      </span>
     </div>
   );
 }
 
-// Risk Badge Component
-function RiskBadge({ level }: { level: RiskAssessment['level'] }) {
-  const colors = {
-    low: '#10b981',
-    medium: '#f59e0b',
-    high: '#ef4444',
-    critical: '#dc2626',
-  };
-
+function VectorMiniChart({ label, value, color = '#00f2ff' }: { label: string; value: number, color?: string }) {
   return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '4px 12px',
-        borderRadius: '9999px',
-        fontSize: '12px',
-        fontWeight: 600,
-        textTransform: 'uppercase',
-        background: colors[level],
-        color: 'white',
-      }}
-    >
-      {level}
-    </span>
+    <Card className="glass-panel" style={{ padding: '0', background: 'rgba(15, 23, 42, 0.4)' }}>
+      <div style={{ padding: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+          <span className="label-tech">{label}</span>
+          <span className="heading-cyber" style={{ fontSize: '18px' }}>{Math.round(value * 100)}%</span>
+        </div>
+        <div className="vector-chart">
+          <div 
+            className="vector-line" 
+            style={{ 
+              background: color, 
+              boxShadow: `0 0 10px ${color}`,
+              width: `${value * 100}%`,
+              transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)'
+            }} 
+          />
+        </div>
+      </div>
+    </Card>
   );
 }
 
-// Learning Progress Component
-function LearningProgressView({
-  progress,
-  onSwitch
-}: {
-  progress: LearningProgress;
-  onSwitch: () => void;
-}) {
+// --- Views ---
+
+function DashboardView({ 
+  status, 
+  lastResult, 
+  logs, 
+  monitorInput, 
+  setMonitorInput, 
+  handleMonitor, 
+  handleReset, 
+  handleSwitch 
+}: any) {
   return (
-    <div style={{ padding: '24px' }}>
-      <h2 style={{ color: '#f9fafb', fontSize: '24px', marginBottom: '24px' }}>
-        Learning Phase
-      </h2>
-
-      <div style={{ background: '#1f2937', borderRadius: '12px', padding: '24px', marginBottom: '24px' }}>
-        <div style={{ marginBottom: '16px' }}>
-          <span style={{ color: '#9ca3af' }}>Collecting baseline data...</span>
-        </div>
-        <div style={{ background: '#374151', borderRadius: '8px', height: '24px', overflow: 'hidden' }}>
-          <div
-            style={{
-              width: `${progress.percentage}%`,
-              height: '100%',
-              background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
-              transition: 'width 0.3s ease',
-            }}
-          />
-        </div>
-        <div style={{ marginTop: '12px', color: '#9ca3af', fontSize: '14px' }}>
-          {progress.current} / {progress.required} samples ({progress.percentage.toFixed(1)}%)
-        </div>
-      </div>
-
-      {progress.percentage >= 100 && (
-        <button
-          onClick={onSwitch}
-          style={{
-            width: '100%',
-            padding: '16px',
-            borderRadius: '8px',
-            border: 'none',
-            background: 'linear-gradient(135deg, #8b5cf6, #3b82f6)',
-            color: 'white',
-            fontSize: '16px',
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
+    <Row gutter={[24, 24]}>
+      {/* Main Visualization */}
+      <Col span={16}>
+        <Card 
+          className="glass-panel" 
+          style={{ height: '500px', display: 'flex', flexDirection: 'column', position: 'relative' }}
+          title={<span className="label-tech">情感向量实时分析</span>}
         >
-          Switch to Monitoring Phase
-        </button>
-      )}
-    </div>
-  );
-}
-
-// Monitoring View Component
-function MonitoringView({
-  status,
-  sessionId,
-  onMonitor
-}: {
-  status: SystemStatus;
-  sessionId: string;
-  onMonitor: (input: string) => void;
-}) {
-  const [input, setInput] = useState('');
-  const [lastResult, setLastResult] = useState<EmotionMonitorResult | null>(null);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (input.trim()) {
-      onMonitor(input);
-    }
-  };
-
-  return (
-    <div style={{ padding: '24px' }}>
-      <h2 style={{ color: '#f9fafb', fontSize: '24px', marginBottom: '24px' }}>
-        Monitoring Phase
-      </h2>
-
-      {/* Baseline Info */}
-      {status.baseline && (
-        <div style={{ background: '#1f2937', borderRadius: '12px', padding: '20px', marginBottom: '24px' }}>
-          <h3 style={{ color: '#e5e7eb', fontSize: '16px', marginBottom: '16px' }}>Baseline Distribution</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px' }}>
-            {Object.entries(status.baseline.distributions).map(([dim, dist]) => (
-              <div key={dim} style={{ textAlign: 'center' }}>
-                <div style={{ color: '#9ca3af', fontSize: '12px', textTransform: 'capitalize' }}>{dim}</div>
-                <div style={{ color: '#f9fafb', fontSize: '18px', fontWeight: 600 }}>
-                  {(dist.mean * 100).toFixed(0)}%
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ position: 'relative', width: '300px', height: '300px' }}>
+              <div style={{ 
+                position: 'absolute', 
+                inset: 0, 
+                border: '2px dashed rgba(0, 242, 255, 0.2)', 
+                borderRadius: '50%',
+                animation: 'spin 20s linear infinite'
+              }} />
+              <div style={{ 
+                position: 'absolute', 
+                inset: '20px', 
+                border: '1px solid rgba(0, 242, 255, 0.4)', 
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'column'
+              }}>
+                <SecurityScanOutlined style={{ fontSize: '48px', color: '#00f2ff', marginBottom: '16px' }} />
+                <div className="heading-cyber" style={{ fontSize: '14px' }}>
+                  {status?.phase === 'monitoring' ? '正在分析数据流...' : '正在采集基础数据...'}
                 </div>
-                <div style={{ color: '#6b7280', fontSize: '11px' }}>±{(dist.std * 100).toFixed(0)}%</div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Input Form */}
-      <form onSubmit={handleSubmit} style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Enter text to monitor..."
-            style={{
-              flex: 1,
-              padding: '12px 16px',
-              borderRadius: '8px',
-              border: '1px solid #374151',
-              background: '#1f2937',
-              color: '#f9fafb',
-              fontSize: '14px',
-            }}
-          />
-          <button
-            type="submit"
-            style={{
-              padding: '12px 24px',
-              borderRadius: '8px',
-              border: 'none',
-              background: '#3b82f6',
-              color: 'white',
-              fontSize: '14px',
-              fontWeight: 500,
-              cursor: 'pointer',
-            }}
-          >
-            Monitor
-          </button>
-        </div>
-      </form>
-
-      {/* Last Result */}
-      {lastResult && (
-        <div style={{ background: '#1f2937', borderRadius: '12px', padding: '20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <RiskBadge level={lastResult.riskAssessment.level} />
-              <span style={{ color: lastResult.allowed ? '#10b981' : '#ef4444', fontWeight: 500 }}>
-                {lastResult.allowed ? 'ALLOWED' : 'BLOCKED'}
-              </span>
             </div>
-            <span style={{ color: '#6b7280', fontSize: '12px' }}>
-              Latency: {lastResult.probeLatencyMs.toFixed(2)}ms
-            </span>
           </div>
 
-          <h4 style={{ color: '#e5e7eb', fontSize: '14px', marginBottom: '16px' }}>Emotion Vectors</h4>
-          {Object.entries(lastResult.emotionState).map(([dim, value]) => (
-            <EmotionBar
-              key={dim}
-              label={dim.charAt(0).toUpperCase() + dim.slice(1)}
-              value={value}
-              baseline={status.baseline?.distributions[dim]?.mean}
-            />
-          ))}
+          <div style={{ position: 'absolute', bottom: '24px', left: '24px', right: '24px' }}>
+            <Row gutter={16}>
+              <Col span={8}>
+                <VectorMiniChart label="平静/愉悦" value={lastResult?.emotionState.calm || 0.68} color="#10b981" />
+              </Col>
+              <Col span={8}>
+                <VectorMiniChart label="恐慌/焦虑" value={lastResult?.emotionState.panicked || 0.12} color="#f59e0b" />
+              </Col>
+              <Col span={8}>
+                <VectorMiniChart label="愤怒/攻击性" value={lastResult?.emotionState.angry || 0.04} color="#ef4444" />
+              </Col>
+            </Row>
+          </div>
+        </Card>
+      </Col>
 
-          {lastResult.riskAssessment.triggeredVectors.length > 0 && (
-            <div style={{ marginTop: '16px', padding: '12px', background: '#374151', borderRadius: '8px' }}>
-              <span style={{ color: '#9ca3af', fontSize: '12px' }}>Triggered: </span>
-              <span style={{ color: '#f9fafb', fontSize: '12px' }}>
-                {lastResult.riskAssessment.triggeredVectors.join(', ')}
-              </span>
+      {/* Security Logs */}
+      <Col span={8}>
+        <Card 
+          className="glass-panel" 
+          style={{ height: '500px' }}
+          title={<span className="label-tech">安全日志</span>}
+          extra={<Badge count={logs.length} overflowCount={99} style={{ backgroundColor: 'rgba(0, 242, 255, 0.2)', color: '#00f2ff', boxShadow: 'none' }} />}
+        >
+          <List
+            dataSource={logs}
+            renderItem={(item: any) => (
+              <List.Item style={{ borderBottom: '1px solid rgba(0, 242, 255, 0.05)', padding: '12px 0' }}>
+                <div style={{ width: '100%' }}>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
+                    <span className="data-mono" style={{ color: '#64748b' }}>[{item.time}]</span>
+                    <span className="label-tech" style={{ 
+                      color: item.type === 'error' ? '#ef4444' : item.type === 'success' ? '#10b981' : '#00f2ff',
+                      fontSize: '10px'
+                    }}>
+                      {item.type.toUpperCase()}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#cbd5e1' }}>{item.event}</div>
+                </div>
+              </List.Item>
+            )}
+            style={{ height: '380px', overflowY: 'auto' }}
+          />
+        </Card>
+      </Col>
+
+      {/* Action Panel */}
+      <Col span={24}>
+        <Card className="glass-panel" bodyStyle={{ padding: '24px' }}>
+          {status?.phase === 'monitoring' ? (
+            <div style={{ display: 'flex', gap: '20px' }}>
+              <Input 
+                placeholder="请输入需要进行情感安全扫描的文本..." 
+                value={monitorInput}
+                onChange={e => setMonitorInput(e.target.value)}
+                onPressEnter={handleMonitor}
+                style={{ 
+                  height: '50px', 
+                  background: 'rgba(15, 23, 42, 0.6)', 
+                  border: '1px solid rgba(0, 242, 255, 0.2)',
+                  color: '#fff'
+                }}
+              />
+              <Button 
+                type="primary" 
+                size="large" 
+                icon={<ArrowRightOutlined />} 
+                onClick={handleMonitor}
+                style={{ height: '50px', padding: '0 40px' }}
+              >
+                执行分析
+              </Button>
+              <Button 
+                danger 
+                size="large" 
+                onClick={handleReset}
+                style={{ height: '50px' }}
+              >
+                重置系统
+              </Button>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '20px' }}>
+              <Title level={4} style={{ color: '#00f2ff', marginBottom: '16px' }}>系统学习阶段进行中</Title>
+              <Progress 
+                percent={status?.learningProgress.percentage || 0} 
+                status="active" 
+                strokeColor={{ '0%': '#00f2ff', '100%': '#0ea5e9' }}
+                trailColor="rgba(15, 23, 42, 0.6)"
+                style={{ marginBottom: '24px' }}
+              />
+              <Text style={{ color: '#94a3b8' }}>
+                样本采集进度: {status?.learningProgress.current} / {status?.learningProgress.required}
+              </Text>
+              <div style={{ marginTop: '24px' }}>
+                <Button 
+                  type="primary" 
+                  disabled={status?.learningProgress.percentage !== 100} 
+                  onClick={handleSwitch}
+                >
+                  激活监控模式
+                </Button>
+              </div>
             </div>
           )}
-        </div>
-      )}
-    </div>
+        </Card>
+      </Col>
+    </Row>
   );
 }
 
-// Main App
+function ConfigView() {
+  const [hwStats, setHwStats] = useState({
+    gpu: 78,
+    vram: 18.5,
+    cpu: 42
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setHwStats(prev => ({
+        gpu: Math.min(100, Math.max(0, prev.gpu + (Math.random() - 0.5) * 5)),
+        vram: 18.5 + (Math.random() - 0.5) * 0.2,
+        cpu: Math.min(100, Math.max(0, prev.cpu + (Math.random() - 0.5) * 8))
+      }));
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <Row gutter={[24, 24]}>
+      {/* Model Setup */}
+      <Col span={14}>
+        <Card 
+          className="glass-panel" 
+          title={<span className="label-tech"><DatabaseOutlined /> 本地模型配置</span>}
+          style={{ height: '100%' }}
+        >
+          <div style={{ 
+            background: 'rgba(0, 242, 255, 0.05)', 
+            border: '1px dashed rgba(0, 242, 255, 0.2)', 
+            borderRadius: '8px',
+            padding: '32px',
+            textAlign: 'center',
+            marginBottom: '24px'
+          }}>
+            <SecurityScanOutlined style={{ fontSize: '40px', color: '#00f2ff', marginBottom: '16px' }} />
+            <div className="heading-cyber" style={{ fontSize: '16px' }}>数据流本端加密处理中</div>
+            <div className="label-tech" style={{ fontSize: '10px', marginTop: '4px' }}>DATA FLOWING LOCALLY</div>
+          </div>
+
+          <Form layout="vertical">
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item label={<span className="label-tech">部署框架</span>}>
+                  <Select defaultValue="ollama" className="cyber-select">
+                    <Option value="ollama">Ollama</Option>
+                    <Option value="vllm">vLLM</Option>
+                    <Option value="lm-studio">LM Studio</Option>
+                    <Option value="local-ai">LocalAI</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label={<span className="label-tech">接口类型</span>}>
+                  <Select defaultValue="openai" className="cyber-select">
+                    <Option value="openai">OpenAI (Compatible)</Option>
+                    <Option value="ollama-native">Ollama Native</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Form.Item label={<span className="label-tech">API 接入点 URL</span>}>
+              <Input 
+                prefix={<LinkOutlined style={{ color: '#00f2ff' }} />} 
+                defaultValue="http://localhost:11434/v1" 
+                className="cyber-input"
+                suffix={<Tag color="success">SYSTEM READY</Tag>}
+              />
+            </Form.Item>
+
+            <Form.Item label={<span className="label-tech">模型选择</span>}>
+              <Select defaultValue="llama3" className="cyber-select">
+                <Option value="llama3">Llama 3 (8B Instruct)</Option>
+                <Option value="qwen2">Qwen 2 (7B)</Option>
+                <Option value="mistral">Mistral (7B v0.3)</Option>
+              </Select>
+            </Form.Item>
+
+            <div style={{ marginTop: '32px', display: 'flex', gap: '16px' }}>
+              <Button ghost block className="neon-button-ghost">测试连接</Button>
+              <Button type="primary" block className="neon-button">保存并初始化</Button>
+            </div>
+          </Form>
+        </Card>
+      </Col>
+
+      {/* Hardware Specs */}
+      <Col span={10}>
+        <Card 
+          className="glass-panel" 
+          title={<span className="label-tech"><DesktopOutlined /> 本地运行规格</span>}
+          style={{ height: '100%' }}
+        >
+          <div style={{ marginBottom: '32px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <span className="label-tech">GPU 使用率</span>
+              <span className="data-mono" style={{ color: '#00f2ff' }}>{hwStats.gpu.toFixed(0)}%</span>
+            </div>
+            <div className="label-tech" style={{ fontSize: '12px', color: '#fff', marginBottom: '8px' }}>NVIDIA RTX 4090</div>
+            <Progress percent={hwStats.gpu} showInfo={false} strokeColor="#00f2ff" trailColor="rgba(15, 23, 42, 0.6)" strokeWidth={4} />
+          </div>
+
+          <div style={{ marginBottom: '32px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <span className="label-tech">VRAM 分配</span>
+              <Tag color="success">STABLE</Tag>
+            </div>
+            <div className="data-mono" style={{ fontSize: '18px', color: '#fff', marginBottom: '8px' }}>{hwStats.vram.toFixed(1)} / 24 GB</div>
+            <Progress percent={(hwStats.vram / 24) * 100} showInfo={false} strokeColor="#10b981" trailColor="rgba(15, 23, 42, 0.6)" strokeWidth={4} />
+          </div>
+
+          <div style={{ marginBottom: '32px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <span className="label-tech">CPU 负载</span>
+              <span className="data-mono" style={{ color: '#0ea5e9' }}>{hwStats.cpu.toFixed(0)}%</span>
+            </div>
+            <div className="label-tech" style={{ fontSize: '12px', color: '#fff', marginBottom: '8px' }}>AMD Ryzen 9</div>
+            <Progress percent={hwStats.cpu} showInfo={false} strokeColor="#0ea5e9" trailColor="rgba(15, 23, 42, 0.6)" strokeWidth={4} />
+          </div>
+
+          <Divider style={{ borderColor: 'rgba(0, 242, 255, 0.1)' }} />
+          
+          <div style={{ background: 'rgba(15, 23, 42, 0.4)', padding: '16px', borderRadius: '8px' }}>
+            <div className="label-tech" style={{ marginBottom: '8px' }}>配置进度</div>
+            <Progress percent={100} strokeColor="#00f2ff" />
+          </div>
+        </Card>
+      </Col>
+    </Row>
+  );
+}
+
+// --- Main App ---
+
 export default function App() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [activeMenu, setActiveMenu] = useState('dashboard');
+  const [monitorInput, setMonitorInput] = useState('');
+  const [lastResult, setLastResult] = useState<EmotionMonitorResult | null>(null);
+  const [logs, setLogs] = useState<LogEntry[]>([
+    { id: '1', time: new Date().toLocaleTimeString(), event: '安全防御系统已初始化', type: 'info' },
+  ]);
 
   const refreshStatus = useCallback(async () => {
     try {
       const data = await fetchStatus();
       setStatus(data);
-      setError(null);
     } catch (err) {
-      setError('Failed to fetch status');
+      console.error('获取系统状态失败', err);
     } finally {
       setLoading(false);
     }
@@ -369,90 +498,182 @@ export default function App() {
 
   useEffect(() => {
     refreshStatus();
-    const interval = setInterval(refreshStatus, 2000);
+    const interval = setInterval(refreshStatus, 3000);
     return () => clearInterval(interval);
   }, [refreshStatus]);
 
-  const handleLearn = async (input: string) => {
-    await sendLearn(input);
-    refreshStatus();
+  const addLog = (event: string, type: LogEntry['type'] = 'info') => {
+    setLogs(prev => [
+      { id: Date.now().toString(), time: new Date().toLocaleTimeString(), event, type },
+      ...prev.slice(0, 19)
+    ]);
+  };
+
+  const handleMonitor = async () => {
+    if (!monitorInput.trim()) return;
+    addLog(`正在扫描输入文本: "${monitorInput.substring(0, 20)}..."`, 'info');
+    try {
+      const result = await sendMonitor(monitorInput);
+      setLastResult(result);
+      if (!result.allowed) {
+        addLog(`警报: 检测到高风险情感波动! 风险等级: ${result.riskAssessment.level}`, 'error');
+      } else {
+        addLog(`扫描完成。检测通过，风险评分: ${result.riskAssessment.score}`, 'success');
+      }
+      setMonitorInput('');
+    } catch (err) {
+      addLog('扫描失败: 连接超时或异常', 'error');
+    }
   };
 
   const handleSwitch = async () => {
+    addLog('正在转换至监控阶段...', 'info');
     await sendSwitch();
     refreshStatus();
   };
 
-  const handleMonitor = async (input: string) => {
-    const result = await sendMonitor(input, 'default');
-    setStatus((prev) => prev ? { ...prev } : null);
-  };
-
   const handleReset = async () => {
+    addLog('接收到系统重置请求。', 'warning');
     await sendReset();
+    setLastResult(null);
     refreshStatus();
   };
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#111827' }}>
-        <div style={{ color: '#9ca3af' }}>Loading...</div>
-      </div>
-    );
-  }
-
-  if (error || !status) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#111827' }}>
-        <div style={{ color: '#ef4444' }}>{error || 'Error'}</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#020617' }}>
+        <ThunderboltOutlined spin style={{ fontSize: '48px', color: '#00f2ff' }} />
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#111827', color: '#f9fafb' }}>
-      {/* Header */}
-      <header style={{ borderBottom: '1px solid #374151', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1 style={{ fontSize: '20px', fontWeight: 600 }}>Emotion Security Monitor</h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <span
-            style={{
-              padding: '6px 12px',
-              borderRadius: '6px',
-              fontSize: '12px',
-              fontWeight: 500,
-              background: status.phase === 'learning' ? '#f59e0b' : '#10b981',
-              color: 'white',
-            }}
-          >
-            {status.phase.toUpperCase()}
-          </span>
-          <button
-            onClick={handleReset}
-            style={{
-              padding: '6px 12px',
-              borderRadius: '6px',
-              border: '1px solid #374151',
-              background: 'transparent',
-              color: '#9ca3af',
-              fontSize: '12px',
-              cursor: 'pointer',
-            }}
-          >
-            Reset
-          </button>
-        </div>
-      </header>
+    <ConfigProvider
+      theme={{
+        algorithm: theme.darkAlgorithm,
+        token: {
+          colorPrimary: '#00f2ff',
+          borderRadius: 4,
+          fontFamily: 'Space Grotesk, "Microsoft YaHei", sans-serif',
+          colorBgBase: '#020617',
+          colorBgContainer: 'rgba(15, 23, 42, 0.4)',
+        },
+      }}
+    >
+      <Layout style={{ height: '100vh', background: 'transparent' }}>
+        <div className="scanline-effect" />
+        
+        {/* Sidebar */}
+        <Sider width={280} className="sidebar" style={{ background: 'rgba(2, 6, 23, 0.8)', borderRight: '1px solid rgba(0, 242, 255, 0.1)' }}>
+          <div style={{ padding: '32px 24px' }}>
+            <div className="heading-cyber" style={{ fontSize: '24px', marginBottom: '40px', fontStyle: 'italic' }}>
+              神盾系统_V1.0
+            </div>
+            
+            <div className="glass-panel" style={{ padding: '16px', marginBottom: '32px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Avatar shape="square" size="large" icon={<UserOutlined />} style={{ background: 'rgba(0, 242, 255, 0.1)', color: '#00f2ff' }} />
+              <div>
+                <div className="label-tech" style={{ fontSize: '10px' }}>操作员_01</div>
+                <div style={{ color: '#00f2ff', fontSize: '12px', fontWeight: 'bold' }}>模型状态: 安全运行</div>
+              </div>
+            </div>
 
-      {/* Content */}
-      <main>
-        {status.phase === 'learning' ? (
-          <LearningProgressView progress={status.learningProgress} onSwitch={handleSwitch} />
-        ) : (
-          <MonitoringView status={status} sessionId="default" onMonitor={handleMonitor} />
-        )}
-      </main>
-    </div>
+            <Menu
+              mode="inline"
+              selectedKeys={[activeMenu]}
+              onClick={(e) => setActiveMenu(e.key)}
+              style={{ background: 'transparent', border: 'none' }}
+              items={[
+                { key: 'dashboard', icon: <DashboardOutlined />, label: '实时监控面板' },
+                { key: 'config', icon: <SettingOutlined />, label: '模型参数配置' },
+                { key: 'stats', icon: <GlobalOutlined />, label: '网络状态指标' },
+              ]}
+            />
+          </div>
+          
+          <div style={{ marginTop: 'auto', padding: '24px' }}>
+            <button className="neon-button" style={{ width: '100%' }} onClick={() => addLog('全局深度扫描已启动...')}>
+              初始化扫描
+            </button>
+          </div>
+        </Sider>
+
+        <Layout style={{ background: 'transparent' }}>
+          {/* Header */}
+          <Header style={{ background: 'transparent', height: '80px', padding: '0 40px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <StatusBadge phase={status?.phase || 'learning'} />
+            <div className="data-mono" style={{ color: '#94a3b8' }}>
+              系统时间: {new Date().toISOString().split('T')[1].split('.')[0]}Z
+            </div>
+          </Header>
+
+          {/* Content */}
+          <Content style={{ padding: '0 40px 40px', overflowY: 'auto' }}>
+            {activeMenu === 'dashboard' ? (
+              <DashboardView 
+                status={status} 
+                lastResult={lastResult} 
+                logs={logs} 
+                monitorInput={monitorInput}
+                setMonitorInput={setMonitorInput}
+                handleMonitor={handleMonitor}
+                handleReset={handleReset}
+                handleSwitch={handleSwitch}
+              />
+            ) : activeMenu === 'config' ? (
+              <ConfigView />
+            ) : (
+              <div style={{ textAlign: 'center', padding: '100px' }}>
+                <Title level={3} style={{ color: '#00f2ff' }}>模块开发中...</Title>
+              </div>
+            )}
+          </Content>
+        </Layout>
+      </Layout>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .ant-menu-item-selected {
+          background: rgba(0, 242, 255, 0.1) !important;
+          color: #00f2ff !important;
+        }
+        .ant-card-head {
+          border-bottom: 1px solid rgba(0, 242, 255, 0.1) !important;
+          min-height: 48px !important;
+        }
+        .ant-layout-sider-children {
+          display: flex;
+          flex-direction: column;
+        }
+        .ant-progress-text {
+          color: #00f2ff !important;
+        }
+        .cyber-input {
+          background: rgba(15, 23, 42, 0.6) !important;
+          border: 1px solid rgba(0, 242, 255, 0.2) !important;
+          color: #fff !important;
+        }
+        .cyber-select .ant-select-selector {
+          background: rgba(15, 23, 42, 0.6) !important;
+          border: 1px solid rgba(0, 242, 255, 0.2) !important;
+          color: #fff !important;
+        }
+        .neon-button-ghost {
+          border-color: #00f2ff !important;
+          color: #00f2ff !important;
+        }
+        .neon-button-ghost:hover {
+          background: rgba(0, 242, 255, 0.1) !important;
+          box-shadow: 0 0 15px rgba(0, 242, 255, 0.2);
+        }
+        .ant-form-item-label label {
+          color: #94a3b8 !important;
+        }
+      `}} />
+    </ConfigProvider>
   );
 }
 
