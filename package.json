@@ -17,6 +17,7 @@
     "fastify": "^5.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "unzipper": "^0.10.14",
     "zod": "^3.24.0"
   },
   "devDependencies": {

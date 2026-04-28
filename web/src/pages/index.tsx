@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { 
-  Layout, 
-  Menu, 
-  Button, 
-  Card, 
-  Progress, 
-  Input, 
-  Badge, 
-  Space, 
-  Typography, 
-  ConfigProvider, 
+import {
+  Layout,
+  Menu,
+  Button,
+  Card,
+  Progress,
+  Input,
+  Badge,
+  Space,
+  Typography,
+  ConfigProvider,
   theme,
   Row,
   Col,
@@ -19,20 +19,19 @@ import {
   Select,
   Form,
   Divider,
-  Tag
+  Tag,
+  Radio
 } from 'antd';
-import { 
-  DashboardOutlined, 
-  SettingOutlined, 
-  SecurityScanOutlined, 
+import {
+  DashboardOutlined,
+  SettingOutlined,
+  SecurityScanOutlined,
   GlobalOutlined,
   ThunderboltOutlined,
-  InfoCircleOutlined,
   UserOutlined,
   ArrowRightOutlined,
   DatabaseOutlined,
   LinkOutlined,
-  CheckCircleOutlined,
   DesktopOutlined
 } from '@ant-design/icons';
 
@@ -104,15 +103,6 @@ async function fetchStatus(): Promise<SystemStatus> {
   return res.json();
 }
 
-async function sendLearn(input: string): Promise<any> {
-  const res = await fetch(`${API_BASE}/learn`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input }),
-  });
-  return res.json();
-}
-
 async function sendSwitch(): Promise<any> {
   const res = await fetch(`${API_BASE}/switch`, {
     method: 'POST',
@@ -156,7 +146,7 @@ function StatusBadge({ phase }: { phase: 'learning' | 'monitoring' }) {
   );
 }
 
-function VectorMiniChart({ label, value, color = '#00f2ff' }: { label: string; value: number, color?: string }) {
+function VectorMiniChart({ label, value, color = '#00f2ff' }: { label: string; value: number; color?: string }) {
   return (
     <Card className="glass-panel" style={{ padding: '0', background: 'rgba(15, 23, 42, 0.4)' }}>
       <div style={{ padding: '16px' }}>
@@ -165,14 +155,14 @@ function VectorMiniChart({ label, value, color = '#00f2ff' }: { label: string; v
           <span className="heading-cyber" style={{ fontSize: '18px' }}>{Math.round(value * 100)}%</span>
         </div>
         <div className="vector-chart">
-          <div 
-            className="vector-line" 
-            style={{ 
-              background: color, 
+          <div
+            className="vector-line"
+            style={{
+              background: color,
               boxShadow: `0 0 10px ${color}`,
               width: `${value * 100}%`,
               transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)'
-            }} 
+            }}
           />
         </div>
       </div>
@@ -180,40 +170,273 @@ function VectorMiniChart({ label, value, color = '#00f2ff' }: { label: string; v
   );
 }
 
-// --- Views ---
+// --- Dataset Upload Section ---
+function DatasetUploadSection() {
+  const [sourceType, setSourceType] = useState<'text' | 'huggingface' | 'local'>('text');
+  const [datasetText, setDatasetText] = useState('');
+  const [hfDatasetId, setHfDatasetId] = useState('');
+  const [hfSplit, setHfSplit] = useState('train');
+  const [localPath, setLocalPath] = useState('');
+  const [limit, setLimit] = useState<number | undefined>(undefined);
+  const [loading, setLoading] = useState(false);
+  const [clusterStatus, setClusterStatus] = useState<any>(null);
+  const [loadResult, setLoadResult] = useState<any>(null);
 
-function DashboardView({ 
-  status, 
-  lastResult, 
-  logs, 
-  monitorInput, 
-  setMonitorInput, 
-  handleMonitor, 
-  handleReset, 
-  handleSwitch 
+  const handleDatasetLoad = async () => {
+    setLoading(true);
+    setLoadResult(null);
+
+    try {
+      let requestBody: any = { autoCluster: true };
+
+      if (sourceType === 'text') {
+        const texts = datasetText.split('\n').filter(t => t.trim());
+        if (texts.length === 0) {
+          setLoading(false);
+          return;
+        }
+        requestBody = { texts, autoCluster: true };
+      } else if (sourceType === 'huggingface') {
+        if (!hfDatasetId.trim()) {
+          setLoading(false);
+          return;
+        }
+        requestBody = {
+          source: 'huggingface',
+          path: hfDatasetId,
+          split: hfSplit,
+          limit,
+          autoCluster: true,
+        };
+      } else if (sourceType === 'local') {
+        if (!localPath.trim()) {
+          setLoading(false);
+          return;
+        }
+        requestBody = {
+          source: 'local-directory',
+          path: localPath,
+          limit,
+          autoCluster: true,
+        };
+      }
+
+      const res = await fetch('/api/learn/dataset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      const data = await res.json();
+      setLoadResult(data);
+
+      if (!data.error) {
+        const statusRes = await fetch('/api/clustering/status');
+        const statusData = await statusRes.json();
+        setClusterStatus(statusData);
+      }
+    } catch (err) {
+      console.error('Dataset loading failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRunClustering = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/clustering/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ k: 5 }),
+      });
+      const data = await res.json();
+      setClusterStatus(data);
+    } catch (err) {
+      console.error('Clustering failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: '24px', textAlign: 'left' }}>
+      <Title level={5} style={{ color: '#00f2ff', marginBottom: '12px' }}>数据集加载</Title>
+
+      {/* 数据源类型选择 */}
+      <Space direction="vertical" style={{ width: '100%', marginBottom: '16px' }}>
+        <Radio.Group
+          value={sourceType}
+          onChange={e => setSourceType(e.target.value)}
+          optionType="button"
+          buttonStyle="solid"
+        >
+          <Radio.Button value="text">手动输入文本</Radio.Button>
+          <Radio.Button value="huggingface">HuggingFace 数据集</Radio.Button>
+          <Radio.Button value="local">本地文件/目录</Radio.Button>
+        </Radio.Group>
+      </Space>
+
+      {/* 文本输入模式 */}
+      {sourceType === 'text' && (
+        <Input.TextArea
+          placeholder="请输入多行文本作为数据集...&#10;每行代表一个独立的对话样本"
+          value={datasetText}
+          onChange={e => setDatasetText(e.target.value)}
+          rows={4}
+          style={{
+            background: 'rgba(15, 23, 42, 0.6)',
+            border: '1px solid rgba(0, 242, 255, 0.2)',
+            color: '#fff',
+            marginBottom: '12px'
+          }}
+        />
+      )}
+
+      {/* HuggingFace 模式 */}
+      {sourceType === 'huggingface' && (
+        <div style={{ marginBottom: '12px' }}>
+          <Input
+            placeholder="HuggingFace 数据集 ID (如: datasets/sentiment_reviews)"
+            value={hfDatasetId}
+            onChange={e => setHfDatasetId(e.target.value)}
+            prefix={<DatabaseOutlined />}
+            style={{
+              background: 'rgba(15, 23, 42, 0.6)',
+              border: '1px solid rgba(0, 242, 255, 0.2)',
+              color: '#fff',
+              marginBottom: '8px'
+            }}
+          />
+          <Space>
+            <Select value={hfSplit} onChange={setHfSplit} style={{ width: 120 }}>
+              <Option value="train">Train</Option>
+              <Option value="test">Test</Option>
+              <Option value="validation">Validation</Option>
+            </Select>
+            <Input
+              type="number"
+              placeholder="最大样本数 (不填则全部)"
+              value={limit || ''}
+              onChange={e => setLimit(e.target.value ? parseInt(e.target.value) : undefined)}
+              style={{ width: 180, background: 'rgba(15, 23, 42, 0.6)', color: '#fff' }}
+            />
+          </Space>
+        </div>
+      )}
+
+      {/* 本地文件/目录模式 */}
+      {sourceType === 'local' && (
+        <div style={{ marginBottom: '12px' }}>
+          <Input
+            placeholder="本地文件或目录路径 (如: /path/to/dataset.json)"
+            value={localPath}
+            onChange={e => setLocalPath(e.target.value)}
+            prefix={<DesktopOutlined />}
+            style={{
+              background: 'rgba(15, 23, 42, 0.6)',
+              border: '1px solid rgba(0, 242, 255, 0.2)',
+              color: '#fff',
+              marginBottom: '8px'
+            }}
+          />
+          <Text style={{ color: '#64748b', fontSize: '11px' }}>
+            支持格式: .json, .jsonl, .csv, .txt, .zip (压缩包)
+          </Text>
+        </div>
+      )}
+
+      <Space style={{ marginTop: '12px' }}>
+        <Button
+          type="primary"
+          onClick={handleDatasetLoad}
+          loading={loading}
+          icon={<DatabaseOutlined />}
+        >
+          加载数据集
+        </Button>
+        <Button
+          onClick={handleRunClustering}
+          loading={loading}
+          icon={<ThunderboltOutlined />}
+        >
+          执行聚类
+        </Button>
+      </Space>
+
+      {/* 加载结果 */}
+      {loadResult && !loadResult.error && (
+        <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '8px' }}>
+          <Text style={{ color: '#10b981', fontSize: '12px' }}>
+            成功加载 {loadResult.total} 个样本，学习进度: {loadResult.success}/{loadResult.total}
+          </Text>
+        </div>
+      )}
+
+      {loadResult?.error && (
+        <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '8px' }}>
+          <Text style={{ color: '#ef4444', fontSize: '12px' }}>
+            错误: {loadResult.error}
+          </Text>
+        </div>
+      )}
+
+      {/* 聚类结果 */}
+      {clusterStatus?.clusters && (
+        <div style={{ marginTop: '24px' }}>
+          <Title level={5} style={{ color: '#00f2ff', marginBottom: '12px' }}>聚类结果</Title>
+          <Row gutter={[12, 12]}>
+            {clusterStatus.clusters.map((cluster: any, idx: number) => (
+              <Col span={12} key={idx}>
+                <Card size="small" className="glass-panel" style={{ padding: '8px' }}>
+                  <div style={{ color: '#00f2ff', fontSize: '12px', marginBottom: '4px' }}>
+                    {cluster.emotion} (簇 {cluster.clusterId})
+                  </div>
+                  <div style={{ color: '#94a3b8', fontSize: '10px' }}>
+                    样本数: {cluster.count}
+                  </div>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Dashboard View ---
+function DashboardView({
+  status,
+  lastResult,
+  logs,
+  monitorInput,
+  setMonitorInput,
+  handleMonitor,
+  handleReset,
+  handleSwitch
 }: any) {
   return (
     <Row gutter={[24, 24]}>
       {/* Main Visualization */}
       <Col span={16}>
-        <Card 
-          className="glass-panel" 
+        <Card
+          className="glass-panel"
           style={{ height: '500px', display: 'flex', flexDirection: 'column', position: 'relative' }}
           title={<span className="label-tech">情感向量实时分析</span>}
         >
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ position: 'relative', width: '300px', height: '300px' }}>
-              <div style={{ 
-                position: 'absolute', 
-                inset: 0, 
-                border: '2px dashed rgba(0, 242, 255, 0.2)', 
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                border: '2px dashed rgba(0, 242, 255, 0.2)',
                 borderRadius: '50%',
                 animation: 'spin 20s linear infinite'
               }} />
-              <div style={{ 
-                position: 'absolute', 
-                inset: '20px', 
-                border: '1px solid rgba(0, 242, 255, 0.4)', 
+              <div style={{
+                position: 'absolute',
+                inset: '20px',
+                border: '1px solid rgba(0, 242, 255, 0.4)',
                 borderRadius: '50%',
                 display: 'flex',
                 alignItems: 'center',
@@ -231,13 +454,13 @@ function DashboardView({
           <div style={{ position: 'absolute', bottom: '24px', left: '24px', right: '24px' }}>
             <Row gutter={16}>
               <Col span={8}>
-                <VectorMiniChart label="平静/愉悦" value={lastResult?.emotionState.calm || 0.68} color="#10b981" />
+                <VectorMiniChart label="平静/愉悦" value={lastResult?.emotionState?.calm || 0.68} color="#10b981" />
               </Col>
               <Col span={8}>
-                <VectorMiniChart label="恐慌/焦虑" value={lastResult?.emotionState.panicked || 0.12} color="#f59e0b" />
+                <VectorMiniChart label="恐慌/焦虑" value={lastResult?.emotionState?.panicked || 0.12} color="#f59e0b" />
               </Col>
               <Col span={8}>
-                <VectorMiniChart label="愤怒/攻击性" value={lastResult?.emotionState.angry || 0.04} color="#ef4444" />
+                <VectorMiniChart label="愤怒/攻击性" value={lastResult?.emotionState?.angry || 0.04} color="#ef4444" />
               </Col>
             </Row>
           </div>
@@ -246,8 +469,8 @@ function DashboardView({
 
       {/* Security Logs */}
       <Col span={8}>
-        <Card 
-          className="glass-panel" 
+        <Card
+          className="glass-panel"
           style={{ height: '500px' }}
           title={<span className="label-tech">安全日志</span>}
           extra={<Badge count={logs.length} overflowCount={99} style={{ backgroundColor: 'rgba(0, 242, 255, 0.2)', color: '#00f2ff', boxShadow: 'none' }} />}
@@ -259,7 +482,7 @@ function DashboardView({
                 <div style={{ width: '100%' }}>
                   <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
                     <span className="data-mono" style={{ color: '#64748b' }}>[{item.time}]</span>
-                    <span className="label-tech" style={{ 
+                    <span className="label-tech" style={{
                       color: item.type === 'error' ? '#ef4444' : item.type === 'success' ? '#10b981' : '#00f2ff',
                       fontSize: '10px'
                     }}>
@@ -280,30 +503,30 @@ function DashboardView({
         <Card className="glass-panel" bodyStyle={{ padding: '24px' }}>
           {status?.phase === 'monitoring' ? (
             <div style={{ display: 'flex', gap: '20px' }}>
-              <Input 
-                placeholder="请输入需要进行情感安全扫描的文本..." 
+              <Input
+                placeholder="请输入需要进行情感安全扫描的文本..."
                 value={monitorInput}
                 onChange={e => setMonitorInput(e.target.value)}
                 onPressEnter={handleMonitor}
-                style={{ 
-                  height: '50px', 
-                  background: 'rgba(15, 23, 42, 0.6)', 
+                style={{
+                  height: '50px',
+                  background: 'rgba(15, 23, 42, 0.6)',
                   border: '1px solid rgba(0, 242, 255, 0.2)',
                   color: '#fff'
                 }}
               />
-              <Button 
-                type="primary" 
-                size="large" 
-                icon={<ArrowRightOutlined />} 
+              <Button
+                type="primary"
+                size="large"
+                icon={<ArrowRightOutlined />}
                 onClick={handleMonitor}
                 style={{ height: '50px', padding: '0 40px' }}
               >
                 执行分析
               </Button>
-              <Button 
-                danger 
-                size="large" 
+              <Button
+                danger
+                size="large"
                 onClick={handleReset}
                 style={{ height: '50px' }}
               >
@@ -313,25 +536,29 @@ function DashboardView({
           ) : (
             <div style={{ textAlign: 'center', padding: '20px' }}>
               <Title level={4} style={{ color: '#00f2ff', marginBottom: '16px' }}>系统学习阶段进行中</Title>
-              <Progress 
-                percent={status?.learningProgress.percentage || 0} 
-                status="active" 
+              <Progress
+                percent={status?.learningProgress?.percentage || 0}
+                status="active"
                 strokeColor={{ '0%': '#00f2ff', '100%': '#0ea5e9' }}
                 trailColor="rgba(15, 23, 42, 0.6)"
                 style={{ marginBottom: '24px' }}
               />
               <Text style={{ color: '#94a3b8' }}>
-                样本采集进度: {status?.learningProgress.current} / {status?.learningProgress.required}
+                样本采集进度: {status?.learningProgress?.current || 0} / {status?.learningProgress?.required || 100}
               </Text>
               <div style={{ marginTop: '24px' }}>
-                <Button 
-                  type="primary" 
-                  disabled={status?.learningProgress.percentage !== 100} 
+                <Button
+                  type="primary"
+                  disabled={status?.learningProgress?.percentage !== 100}
                   onClick={handleSwitch}
                 >
                   激活监控模式
                 </Button>
               </div>
+
+              <Divider style={{ borderColor: 'rgba(0, 242, 255, 0.1)', margin: '32px 0 24px' }} />
+
+              <DatasetUploadSection />
             </div>
           )}
         </Card>
@@ -340,6 +567,7 @@ function DashboardView({
   );
 }
 
+// --- Config View ---
 function ConfigView() {
   const [hwStats, setHwStats] = useState({
     gpu: 78,
@@ -362,14 +590,14 @@ function ConfigView() {
     <Row gutter={[24, 24]}>
       {/* Model Setup */}
       <Col span={14}>
-        <Card 
-          className="glass-panel" 
+        <Card
+          className="glass-panel"
           title={<span className="label-tech"><DatabaseOutlined /> 本地模型配置</span>}
           style={{ height: '100%' }}
         >
-          <div style={{ 
-            background: 'rgba(0, 242, 255, 0.05)', 
-            border: '1px dashed rgba(0, 242, 255, 0.2)', 
+          <div style={{
+            background: 'rgba(0, 242, 255, 0.05)',
+            border: '1px dashed rgba(0, 242, 255, 0.2)',
             borderRadius: '8px',
             padding: '32px',
             textAlign: 'center',
@@ -403,9 +631,9 @@ function ConfigView() {
             </Row>
 
             <Form.Item label={<span className="label-tech">API 接入点 URL</span>}>
-              <Input 
-                prefix={<LinkOutlined style={{ color: '#00f2ff' }} />} 
-                defaultValue="http://localhost:11434/v1" 
+              <Input
+                prefix={<LinkOutlined style={{ color: '#00f2ff' }} />}
+                defaultValue="http://localhost:11434/v1"
                 className="cyber-input"
                 suffix={<Tag color="success">SYSTEM READY</Tag>}
               />
@@ -429,8 +657,8 @@ function ConfigView() {
 
       {/* Hardware Specs */}
       <Col span={10}>
-        <Card 
-          className="glass-panel" 
+        <Card
+          className="glass-panel"
           title={<span className="label-tech"><DesktopOutlined /> 本地运行规格</span>}
           style={{ height: '100%' }}
         >
@@ -462,7 +690,7 @@ function ConfigView() {
           </div>
 
           <Divider style={{ borderColor: 'rgba(0, 242, 255, 0.1)' }} />
-          
+
           <div style={{ background: 'rgba(15, 23, 42, 0.4)', padding: '16px', borderRadius: '8px' }}>
             <div className="label-tech" style={{ marginBottom: '8px' }}>配置进度</div>
             <Progress percent={100} strokeColor="#00f2ff" />
@@ -562,14 +790,14 @@ export default function App() {
     >
       <Layout style={{ height: '100vh', background: 'transparent' }}>
         <div className="scanline-effect" />
-        
+
         {/* Sidebar */}
         <Sider width={280} className="sidebar" style={{ background: 'rgba(2, 6, 23, 0.8)', borderRight: '1px solid rgba(0, 242, 255, 0.1)' }}>
           <div style={{ padding: '32px 24px' }}>
             <div className="heading-cyber" style={{ fontSize: '24px', marginBottom: '40px', fontStyle: 'italic' }}>
               神盾系统_V1.0
             </div>
-            
+
             <div className="glass-panel" style={{ padding: '16px', marginBottom: '32px', display: 'flex', alignItems: 'center', gap: '12px' }}>
               <Avatar shape="square" size="large" icon={<UserOutlined />} style={{ background: 'rgba(0, 242, 255, 0.1)', color: '#00f2ff' }} />
               <div>
@@ -590,7 +818,7 @@ export default function App() {
               ]}
             />
           </div>
-          
+
           <div style={{ marginTop: 'auto', padding: '24px' }}>
             <button className="neon-button" style={{ width: '100%' }} onClick={() => addLog('全局深度扫描已启动...')}>
               初始化扫描
@@ -610,10 +838,10 @@ export default function App() {
           {/* Content */}
           <Content style={{ padding: '0 40px 40px', overflowY: 'auto' }}>
             {activeMenu === 'dashboard' ? (
-              <DashboardView 
-                status={status} 
-                lastResult={lastResult} 
-                logs={logs} 
+              <DashboardView
+                status={status}
+                lastResult={lastResult}
+                logs={logs}
                 monitorInput={monitorInput}
                 setMonitorInput={setMonitorInput}
                 handleMonitor={handleMonitor}

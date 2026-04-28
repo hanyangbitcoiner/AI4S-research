@@ -228,6 +228,219 @@ fastify.post('/api/defend', async (request) => {
 });
 
 /**
+ * 批量学习（数据集）
+ *
+ * POST /api/learn/dataset
+ * 支持三种数据源：
+ * 1. 直接文本数组: { texts: string[] }
+ * 2. HuggingFace 数据集: { source: 'huggingface', path: 'dataset_id', split?: 'train' }
+ * 3. 本地文件/目录: { source: 'local-file'|'local-directory', path: '/path/to/file' }
+ */
+fastify.post('/api/learn/dataset', async (request) => {
+  if (!defenseSystem) {
+    return { error: 'System not initialized' };
+  }
+
+  const body = request.body as {
+    texts?: string[];
+    source?: 'huggingface' | 'local-file' | 'local-directory';
+    path?: string;
+    split?: string;
+    textColumn?: string;
+    limit?: number;
+    autoCluster?: boolean;
+  };
+
+  let texts: string[] = [];
+
+  // 根据数据源类型加载数据
+  if (body.source === 'huggingface' && body.path) {
+    // 从 HuggingFace 加载
+    try {
+      const { DatasetLoader } = await import('./ml/datasetLoader.js');
+      const loader = new DatasetLoader();
+      const dataset = await loader.loadFromHuggingFace(body.path, {
+        split: body.split,
+        textColumn: body.textColumn,
+        limit: body.limit,
+      });
+      texts = dataset.texts;
+      console.log(`Loaded ${texts.length} samples from HuggingFace: ${body.path}`);
+    } catch (err) {
+      return {
+        error: `Failed to load HuggingFace dataset: ${err instanceof Error ? err.message : err}`,
+        hint: 'Make sure the datasets package is installed: npm install datasets',
+      };
+    }
+  } else if (body.source === 'local-file' && body.path) {
+    // 从本地文件加载
+    try {
+      const { DatasetLoader } = await import('./ml/datasetLoader.js');
+      const loader = new DatasetLoader();
+      const dataset = await loader.loadFromFile(body.path, {
+        textColumn: body.textColumn,
+        limit: body.limit,
+      });
+      texts = dataset.texts;
+      console.log(`Loaded ${texts.length} samples from file: ${body.path}`);
+    } catch (err) {
+      return { error: `Failed to load file: ${err instanceof Error ? err.message : err}` };
+    }
+  } else if (body.source === 'local-directory' && body.path) {
+    // 从本地目录加载
+    try {
+      const { DatasetLoader } = await import('./ml/datasetLoader.js');
+      const loader = new DatasetLoader();
+      const dataset = await loader.loadFromDirectory(body.path, {
+        textColumn: body.textColumn,
+        limit: body.limit,
+      });
+      texts = dataset.texts;
+      console.log(`Loaded ${texts.length} samples from directory: ${body.path}`);
+    } catch (err) {
+      return { error: `Failed to load directory: ${err instanceof Error ? err.message : err}` };
+    }
+  } else if (body.texts && Array.isArray(body.texts)) {
+    // 直接文本数组
+    texts = body.texts;
+  } else {
+    return {
+      error: 'Invalid request. Provide either texts array or source + path',
+      example: {
+        'texts array': { texts: ['text1', 'text2'] },
+        'HuggingFace': { source: 'huggingface', path: 'datasets/sentiment_reviews' },
+        'local file': { source: 'local-file', path: '/path/to/data.json' },
+        'local directory': { source: 'local-directory', path: '/path/to/folder' },
+      },
+    };
+  }
+
+  if (texts.length === 0) {
+    return { error: 'No texts loaded from dataset' };
+  }
+
+  // 学习每个文本
+  const results: Array<{
+    text: string;
+    vectors: import('../shared/types.js').EmotionVectors;
+    success: boolean;
+    error?: string;
+  }> = [];
+
+  for (const text of texts) {
+    try {
+      const hiddenStates = new Float32Array(4096);
+      for (let i = 0; i < 4096; i++) {
+        hiddenStates[i] = Math.random() * 2 - 1;
+      }
+
+      const result = await defenseSystem.learn(text, hiddenStates);
+      results.push({
+        text: text.substring(0, 50) + (text.length > 50 ? '...' : ''),
+        vectors: result.vectors,
+        success: true,
+      });
+    } catch (err) {
+      results.push({
+        text: text.substring(0, 50) + (text.length > 50 ? '...' : ''),
+        vectors: { desperate: 0, panicked: 0, angry: 0, calm: 0, deceptive: 0 },
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
+    }
+  }
+
+  const successCount = results.filter(r => r.success).length;
+  const progress = defenseSystem.getStatus().learningProgress;
+
+  return {
+    total: texts.length,
+    success: successCount,
+    failed: texts.length - successCount,
+    learningProgress: progress,
+    results: results.slice(0, 10),
+    autoCluster: body.autoCluster,
+    message: body.autoCluster
+      ? 'Dataset processed. Call POST /api/clustering/run to perform clustering.'
+      : 'Dataset processed. Call POST /api/learn/switch when ready.',
+  };
+});
+
+/**
+ * 执行聚类
+ *
+ * POST /api/clustering/run
+ * Body: { k?: number } (可选：指定聚类数量，默认5)
+ */
+fastify.post('/api/clustering/run', async (request) => {
+  if (!defenseSystem) {
+    return { error: 'System not initialized' };
+  }
+
+  const { k = 5 } = request.body as { k?: number };
+
+  // 获取探针执行聚类
+  const probe = (defenseSystem as any).probe;
+  if (!probe) {
+    return { error: 'Probe not available' };
+  }
+
+  const clusterResults = probe.performClustering();
+
+  if (clusterResults.length === 0) {
+    return {
+      success: false,
+      message: 'Not enough samples for clustering',
+      collected: probe.pendingVectors?.length ?? 0,
+      required: k * 20,
+    };
+  }
+
+  return {
+    success: true,
+    k: clusterResults.length,
+    clusters: clusterResults.map((c: any) => ({
+      clusterId: c.clusterId,
+      emotion: c.emotion,
+      center: c.center,
+      count: c.count,
+      distribution: c.distribution,
+    })),
+    message: 'Clustering completed. Call POST /api/switch to enter monitoring phase.',
+  };
+});
+
+/**
+ * 获取聚类状态
+ *
+ * GET /api/clustering/status
+ */
+fastify.get('/api/clustering/status', async () => {
+  if (!defenseSystem) {
+    return { error: 'System not initialized' };
+  }
+
+  const probe = (defenseSystem as any).probe;
+  if (!probe) {
+    return { error: 'Probe not available' };
+  }
+
+  const clusterResults = probe.getClusterResults?.() ?? [];
+  const clusteringProgress = probe.getClusteringProgress?.() ?? { collected: 0, required: 0, percentage: 0 };
+
+  return {
+    hasClustering: clusterResults.length > 0,
+    clusteringProgress,
+    clusters: clusterResults.map((c: any) => ({
+      clusterId: c.clusterId,
+      emotion: c.emotion,
+      center: c.center,
+      count: c.count,
+    })),
+  };
+});
+
+/**
  * 重置系统
  *
  * POST /api/reset
