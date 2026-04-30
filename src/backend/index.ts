@@ -11,6 +11,7 @@
 import Fastify from 'fastify';
 import { getDefenseSystem, resetDefenseSystem } from './layers/defenseSystem.js';
 import type { EmotionBaseline } from './ml/baselineLearner.js';
+import * as si from 'systeminformation';
 
 const fastify = Fastify({ logger: true });
 
@@ -38,6 +39,51 @@ async function initDefenseSystem() {
  */
 fastify.get('/health', async () => {
   return { status: 'ok', timestamp: Date.now() };
+});
+
+/**
+ * 获取系统硬件信息
+ */
+fastify.get('/api/system-info', async () => {
+  const [cpu, mem, osInfo, graphics] = await Promise.all([
+    si.cpu(),
+    si.mem(),
+    si.osInfo(),
+    si.graphics(),
+  ]);
+
+  const displayMem = mem.total / (1024 ** 3);
+  const usedMem = (mem.total - mem.available) / (1024 ** 3);
+
+  // 获取 GPU 信息
+  const gpuArray = graphics.controllers || [];
+  const primaryGpu = gpuArray[0] || null;
+
+  return {
+    cpu: {
+      manufacturer: cpu.manufacturer,
+      brand: cpu.brand,
+      cores: cpu.cores,
+      physicalCores: cpu.physicalCores,
+      speed: cpu.speed,
+    },
+    memory: {
+      total: displayMem.toFixed(1),
+      used: usedMem.toFixed(1),
+      usedPercent: ((usedMem / displayMem) * 100).toFixed(0),
+    },
+    os: {
+      platform: osInfo.platform,
+      distro: osInfo.distro,
+      release: osInfo.release,
+      arch: osInfo.arch,
+    },
+    gpu: primaryGpu ? {
+      model: primaryGpu.model,
+      vendor: primaryGpu.vendor,
+      vram: primaryGpu.vram ? (primaryGpu.vram / 1024).toFixed(1) : null,
+    } : null,
+  };
 });
 
 /**

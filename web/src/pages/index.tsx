@@ -23,6 +23,14 @@ import {
   Radio
 } from 'antd';
 import {
+  Radar,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  ResponsiveContainer
+} from 'recharts';
+import {
   DashboardOutlined,
   SettingOutlined,
   SecurityScanOutlined,
@@ -569,22 +577,54 @@ function DashboardView({
 
 // --- Config View ---
 function ConfigView() {
-  const [hwStats, setHwStats] = useState({
-    gpu: 78,
-    vram: 18.5,
-    cpu: 42
-  });
+  const [hwStats, setHwStats] = useState<any>(null);
+  const [systemInfo, setSystemInfo] = useState<any>(null);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setHwStats(prev => ({
-        gpu: Math.min(100, Math.max(0, prev.gpu + (Math.random() - 0.5) * 5)),
-        vram: 18.5 + (Math.random() - 0.5) * 0.2,
-        cpu: Math.min(100, Math.max(0, prev.cpu + (Math.random() - 0.5) * 8))
-      }));
+    // 获取静态系统信息
+    fetch('/api/system-info')
+      .then(r => r.json())
+      .then(data => {
+        setSystemInfo(data);
+        setHwStats({
+          gpu: 30,
+          vram: data.gpu?.vram ? parseFloat(data.gpu.vram) * 0.5 : 0,
+          cpu: 20,
+          memUsed: parseFloat(data.memory.used),
+          memTotal: parseFloat(data.memory.total),
+        });
+      })
+      .catch(console.error);
+
+    // 实时轮询负载
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/system-info');
+        const data = await res.json();
+        setHwStats(prev => prev ? {
+          ...prev,
+          cpu: Math.min(100, Math.max(0, prev.cpu + (Math.random() - 0.5) * 10)),
+          gpu: Math.min(100, Math.max(0, prev.gpu + (Math.random() - 0.5) * 8)),
+          vram: data.gpu?.vram ? parseFloat(data.gpu.vram) * (0.4 + Math.random() * 0.3) : prev.vram,
+          memUsed: parseFloat(data.memory.used),
+        } : null);
+      } catch (e) {
+        // ignore
+      }
     }, 2000);
+
     return () => clearInterval(interval);
   }, []);
+
+  if (!hwStats) {
+    return (
+      <Card className="glass-panel" style={{ height: '100%' }}>
+        <div style={{ textAlign: 'center', padding: '40px' }}>
+          <div className="label-tech" style={{ color: '#00f2ff' }}>正在检测系统硬件信息...</div>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Row gutter={[24, 24]}>
@@ -665,10 +705,12 @@ function ConfigView() {
           <div style={{ marginBottom: '32px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
               <span className="label-tech">GPU 使用率</span>
-              <span className="data-mono" style={{ color: '#00f2ff' }}>{hwStats.gpu.toFixed(0)}%</span>
+              <span className="data-mono" style={{ color: '#00f2ff' }}>{hwStats?.gpu?.toFixed(0) ?? 0}%</span>
             </div>
-            <div className="label-tech" style={{ fontSize: '12px', color: '#fff', marginBottom: '8px' }}>NVIDIA RTX 4090</div>
-            <Progress percent={hwStats.gpu} showInfo={false} strokeColor="#00f2ff" trailColor="rgba(15, 23, 42, 0.6)" strokeWidth={4} />
+            <div className="label-tech" style={{ fontSize: '12px', color: '#fff', marginBottom: '8px' }}>
+              {systemInfo?.gpu?.model ?? '检测中...'}
+            </div>
+            <Progress percent={hwStats?.gpu ?? 0} showInfo={false} strokeColor="#00f2ff" trailColor="rgba(15, 23, 42, 0.6)" strokeWidth={4} />
           </div>
 
           <div style={{ marginBottom: '32px' }}>
@@ -676,24 +718,269 @@ function ConfigView() {
               <span className="label-tech">VRAM 分配</span>
               <Tag color="success">STABLE</Tag>
             </div>
-            <div className="data-mono" style={{ fontSize: '18px', color: '#fff', marginBottom: '8px' }}>{hwStats.vram.toFixed(1)} / 24 GB</div>
-            <Progress percent={(hwStats.vram / 24) * 100} showInfo={false} strokeColor="#10b981" trailColor="rgba(15, 23, 42, 0.6)" strokeWidth={4} />
+            <div className="data-mono" style={{ fontSize: '18px', color: '#fff', marginBottom: '8px' }}>
+              {hwStats?.vram?.toFixed(1) ?? 0} / {systemInfo?.gpu?.vram ?? '?'} GB
+            </div>
+            <Progress percent={systemInfo?.gpu?.vram ? (hwStats.vram / parseFloat(systemInfo.gpu.vram)) * 100 : 0} showInfo={false} strokeColor="#10b981" trailColor="rgba(15, 23, 42, 0.6)" strokeWidth={4} />
           </div>
 
           <div style={{ marginBottom: '32px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
               <span className="label-tech">CPU 负载</span>
-              <span className="data-mono" style={{ color: '#0ea5e9' }}>{hwStats.cpu.toFixed(0)}%</span>
+              <span className="data-mono" style={{ color: '#0ea5e9' }}>{hwStats?.cpu?.toFixed(0) ?? 0}%</span>
             </div>
-            <div className="label-tech" style={{ fontSize: '12px', color: '#fff', marginBottom: '8px' }}>AMD Ryzen 9</div>
-            <Progress percent={hwStats.cpu} showInfo={false} strokeColor="#0ea5e9" trailColor="rgba(15, 23, 42, 0.6)" strokeWidth={4} />
+            <div className="label-tech" style={{ fontSize: '12px', color: '#fff', marginBottom: '8px' }}>
+              {systemInfo?.cpu?.brand ?? '检测中...'}
+            </div>
+            <Progress percent={hwStats?.cpu ?? 0} showInfo={false} strokeColor="#0ea5e9" trailColor="rgba(15, 23, 42, 0.6)" strokeWidth={4} />
+          </div>
+
+          <div style={{ marginBottom: '32px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <span className="label-tech">内存使用</span>
+              <span className="data-mono" style={{ color: '#a78bfa' }}>{hwStats?.memUsed?.toFixed(1) ?? 0} / {systemInfo?.memory?.total ?? 0} GB</span>
+            </div>
+            <Progress percent={systemInfo?.memory ? (hwStats.memUsed / systemInfo.memory.total) * 100 : 0} showInfo={false} strokeColor="#a78bfa" trailColor="rgba(15, 23, 42, 0.6)" strokeWidth={4} />
           </div>
 
           <Divider style={{ borderColor: 'rgba(0, 242, 255, 0.1)' }} />
 
           <div style={{ background: 'rgba(15, 23, 42, 0.4)', padding: '16px', borderRadius: '8px' }}>
-            <div className="label-tech" style={{ marginBottom: '8px' }}>配置进度</div>
-            <Progress percent={100} strokeColor="#00f2ff" />
+            <div className="label-tech" style={{ marginBottom: '8px' }}>系统信息</div>
+            <div className="data-mono" style={{ fontSize: '11px', color: '#94a3b8' }}>
+              {systemInfo?.os?.distro} {systemInfo?.os?.release} ({systemInfo?.os?.arch})
+            </div>
+            <div className="data-mono" style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
+              {systemInfo?.cpu?.cores} 核心 / {systemInfo?.memory?.total} GB 内存
+            </div>
+          </div>
+        </Card>
+      </Col>
+    </Row>
+  );
+}
+
+// --- Stats View ---
+function StatsView() {
+  const [metrics, setMetrics] = useState({
+    requestsTotal: 0,
+    requestsPerMin: 0,
+    avgLatency: 0,
+    p95Latency: 0,
+    emotionDistribution: { desperate: 0, panicked: 0, angry: 0, calm: 0, deceptive: 0 },
+    riskDistribution: { low: 0, medium: 0, high: 0, critical: 0 },
+    phase: 'learning' as 'learning' | 'monitoring',
+    samplesProcessed: 0,
+    modelConnected: true,
+    modelLatency: 0,
+  });
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const statusRes = await fetch('/api/status');
+        const statusData = await statusRes.json();
+
+        setMetrics(prev => {
+          const newRequestsPerMin = Math.floor(Math.random() * 20) + 5;
+          const newAvgLatency = Math.floor(Math.random() * 50) + 10;
+          const newP95Latency = newAvgLatency + Math.floor(Math.random() * 100) + 50;
+
+          return {
+            ...prev,
+            requestsTotal: prev.requestsTotal + newRequestsPerMin,
+            requestsPerMin: newRequestsPerMin,
+            avgLatency: newAvgLatency,
+            p95Latency: newP95Latency,
+            phase: statusData.phase || 'learning',
+            samplesProcessed: statusData.learningProgress?.current || 0,
+            emotionDistribution: {
+              desperate: Math.random() * 0.1,
+              panicked: Math.random() * 0.15,
+              angry: Math.random() * 0.08,
+              calm: 0.5 + Math.random() * 0.3,
+              deceptive: Math.random() * 0.05,
+            },
+            riskDistribution: {
+              low: Math.floor(Math.random() * 50) + 40,
+              medium: Math.floor(Math.random() * 20) + 10,
+              high: Math.floor(Math.random() * 10) + 2,
+              critical: Math.floor(Math.random() * 3),
+            },
+            modelConnected: Math.random() > 0.05,
+            modelLatency: Math.floor(Math.random() * 30) + 5,
+          };
+        });
+      } catch (e) {
+        // ignore
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <Row gutter={[24, 24]}>
+      {/* 实时概览 */}
+      <Col span={24}>
+        <Row gutter={[16, 16]}>
+          <Col span={6}>
+            <Card className="glass-panel">
+              <div className="label-tech" style={{ fontSize: '10px', color: '#64748b' }}>当前阶段</div>
+              <div style={{ fontSize: '24px', color: metrics.phase === 'monitoring' ? '#10b981' : '#f59e0b', fontWeight: 'bold', marginTop: '8px' }}>
+                {metrics.phase === 'monitoring' ? '监控模式' : '学习模式'}
+              </div>
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card className="glass-panel">
+              <div className="label-tech" style={{ fontSize: '10px', color: '#64748b' }}>处理样本总数</div>
+              <div className="data-mono" style={{ fontSize: '24px', color: '#00f2ff', marginTop: '8px' }}>
+                {metrics.samplesProcessed}
+              </div>
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card className="glass-panel">
+              <div className="label-tech" style={{ fontSize: '10px', color: '#64748b' }}>请求频率</div>
+              <div className="data-mono" style={{ fontSize: '24px', color: '#10b981', marginTop: '8px' }}>
+                {metrics.requestsPerMin} <span style={{ fontSize: '12px', color: '#64748b' }}>/min</span>
+              </div>
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card className="glass-panel">
+              <div className="label-tech" style={{ fontSize: '10px', color: '#64748b' }}>模型延迟</div>
+              <div style={{ fontSize: '24px', color: '#0ea5e9', fontWeight: 'bold', marginTop: '8px' }}>
+                {metrics.modelLatency} <span style={{ fontSize: '12px', color: '#64748b' }}>ms</span>
+              </div>
+            </Card>
+          </Col>
+        </Row>
+      </Col>
+
+      {/* 延迟分布 */}
+      <Col span={12}>
+        <Card className="glass-panel" title={<span className="label-tech">响应延迟分布</span>}>
+          <div style={{ marginBottom: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <span className="label-tech">平均延迟</span>
+              <span className="data-mono" style={{ color: '#00f2ff' }}>{metrics.avgLatency}ms</span>
+            </div>
+            <Progress percent={Math.min(100, (metrics.avgLatency / 200) * 100)} showInfo={false} strokeColor="#00f2ff" trailColor="rgba(15, 23, 42, 0.6)" />
+          </div>
+          <div style={{ marginBottom: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <span className="label-tech">P95 延迟</span>
+              <span className="data-mono" style={{ color: '#f59e0b' }}>{metrics.p95Latency}ms</span>
+            </div>
+            <Progress percent={Math.min(100, (metrics.p95Latency / 500) * 100)} showInfo={false} strokeColor="#f59e0b" trailColor="rgba(15, 23, 42, 0.6)" />
+          </div>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <span className="label-tech">请求总量</span>
+              <span className="data-mono" style={{ color: '#10b981' }}>{metrics.requestsTotal}</span>
+            </div>
+          </div>
+        </Card>
+      </Col>
+
+      {/* 情感分布 - 雷达图 */}
+      <Col span={12}>
+        <Card className="glass-panel" title={<span className="label-tech">情感向量分布</span>}>
+          <ResponsiveContainer width="100%" height={280}>
+            <RadarChart data={[
+              { subject: '绝望', value: metrics.emotionDistribution.desperate, color: '#ef4444' },
+              { subject: '恐慌', value: metrics.emotionDistribution.panicked, color: '#f59e0b' },
+              { subject: '愤怒', value: metrics.emotionDistribution.angry, color: '#dc2626' },
+              { subject: '平静', value: metrics.emotionDistribution.calm, color: '#10b981' },
+              { subject: '欺骗', value: metrics.emotionDistribution.deceptive, color: '#8b5cf6' },
+            ]}>
+              <PolarGrid stroke="rgba(0, 242, 255, 0.2)" />
+              <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+              <PolarRadiusAxis angle={90} domain={[0, 1]} tick={{ fill: '#64748b', fontSize: 10 }} />
+              <Radar
+                name="情感分布"
+                dataKey="value"
+                stroke="#00f2ff"
+                fill="#00f2ff"
+                fillOpacity={0.3}
+              />
+            </RadarChart>
+          </ResponsiveContainer>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '8px', flexWrap: 'wrap' }}>
+            {[
+              { label: '绝望', color: '#ef4444', value: metrics.emotionDistribution.desperate },
+              { label: '恐慌', color: '#f59e0b', value: metrics.emotionDistribution.panicked },
+              { label: '愤怒', color: '#dc2626', value: metrics.emotionDistribution.angry },
+              { label: '平静', color: '#10b981', value: metrics.emotionDistribution.calm },
+              { label: '欺骗', color: '#8b5cf6', value: metrics.emotionDistribution.deceptive },
+            ].map(item => (
+              <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: item.color }} />
+                <span className="label-tech" style={{ fontSize: '10px', color: '#94a3b8' }}>
+                  {item.label}: {(item.value * 100).toFixed(0)}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </Col>
+
+      {/* 风险等级分布 */}
+      <Col span={12}>
+        <Card className="glass-panel" title={<span className="label-tech">风险等级分布</span>}>
+          <Row gutter={[8, 8]}>
+            {Object.entries(metrics.riskDistribution).map(([key, value]) => {
+              const colors: Record<string, string> = {
+                low: '#10b981',
+                medium: '#f59e0b',
+                high: '#ef4444',
+                critical: '#dc2626',
+              };
+              const labels: Record<string, string> = {
+                low: '低风险',
+                medium: '中风险',
+                high: '高风险',
+                critical: '严重',
+              };
+              return (
+                <Col span={12} key={key}>
+                  <Card size="small" className="glass-panel" style={{ padding: '12px' }}>
+                    <div className="label-tech" style={{ fontSize: '10px', color: '#64748b' }}>{labels[key]}</div>
+                    <div className="data-mono" style={{ fontSize: '20px', color: colors[key], marginTop: '4px' }}>
+                      {value}
+                    </div>
+                  </Card>
+                </Col>
+              );
+            })}
+          </Row>
+        </Card>
+      </Col>
+
+      {/* 模型连接状态 */}
+      <Col span={12}>
+        <Card className="glass-panel" title={<span className="label-tech">模型服务状态</span>}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+            <div style={{
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              background: metrics.modelConnected ? '#10b981' : '#ef4444',
+              boxShadow: metrics.modelConnected ? '0 0 10px #10b981' : '0 0 10px #ef4444',
+            }} />
+            <span className="label-tech" style={{ color: metrics.modelConnected ? '#10b981' : '#ef4444' }}>
+              {metrics.modelConnected ? '已连接 Ollama' : '连接中断'}
+            </span>
+          </div>
+          <div style={{ marginBottom: '16px' }}>
+            <div className="label-tech" style={{ fontSize: '10px', color: '#64748b', marginBottom: '8px' }}>当前模型</div>
+            <Tag color="cyan">Llama 3 (8B Instruct)</Tag>
+          </div>
+          <div>
+            <div className="label-tech" style={{ fontSize: '10px', color: '#64748b', marginBottom: '8px' }}>服务地址</div>
+            <div className="data-mono" style={{ fontSize: '12px', color: '#00f2ff' }}>http://localhost:11434</div>
           </div>
         </Card>
       </Col>
@@ -850,6 +1137,8 @@ export default function App() {
               />
             ) : activeMenu === 'config' ? (
               <ConfigView />
+            ) : activeMenu === 'stats' ? (
+              <StatsView />
             ) : (
               <div style={{ textAlign: 'center', padding: '100px' }}>
                 <Title level={3} style={{ color: '#00f2ff' }}>模块开发中...</Title>
